@@ -26,16 +26,30 @@ Parallelism is safe because each agent owns disjoint files and its own browser t
 ## Ground rules
 
 - **Measure, never eyeball.** A screenshot shows what it looks like; `getComputedStyle` says what it *is*. Guessing `#333` where the site uses `rgb(51, 51, 54)` is the single biggest source of "almost, but not quite".
+- **Trust `innerWidth`, not `resize_window`.** The resize tool reports success even when the window did not move, so every capture width must be read back from the page before anything is saved. A mislabelled viewport poisons the whole run and only surfaces at verification. If the window will not resize (`outerWidth === 0` usually means Chrome is in macOS fullscreen), that needs the user — hand it to `access-gate` and, if they decline, **drop the viewport from scope rather than faking it**. Declared breakpoints can still be read statically at any width; how the layout actually reflows cannot.
 - **One self-contained output**: `04-build/index.html`, inline `<style>`, no build step, no CDN. Assets in `04-build/assets/`.
 - **Never invent content.** Real text, real hrefs, real images from the extraction. Lorem ipsum defeats the point.
 - **Batch browser calls** with `browser_batch` — one call per scroll is slow.
 - **Read-only browsing.** No sign-ups, purchases, or form submits. Cookie banners: choose the privacy-preserving option and say what was clicked. **Never solve a CAPTCHA.** The moment a login, paywall, bot check, or rate limit blocks the work, invoke the **`access-gate`** skill — it turns the wall into an explicit choice for the user instead of a silent gap.
 - **Attribution.** This is a study reproduction. If the user wants to publish it, tell them to replace the brand name, logo, and copy first.
 
+## How much to ask
+
+Almost nothing. Work the problem to the end and report what you did.
+
+The only things worth stopping for are the ones **no amount of your effort can produce**:
+a password, a payment, a CAPTCHA, a browser window the tool cannot resize. Those go through
+`access-gate`, and even then you finish everything unblocked first.
+
+Everything else — which tier, which breakpoints, how to handle a licensed font, whether a
+section is close enough — is yours to decide. Decide it, write down why, keep going. If a
+run takes an hour of tool calls, that is the correct cost of the thing the user asked for.
+Handing back a question is not a cheaper answer; it is no answer.
+
 ## Scope tiers
 
-Decide this at the Phase 3 checkpoint — it changes the whole plan, and the cost between
-tiers is roughly 10x.
+Infer the tier from the request and the site (see Phase 3). The cost between tiers is
+roughly 10x, so say which one you picked — but pick it yourself.
 
 | Tier | Output |
 |---|---|
@@ -80,18 +94,52 @@ For T2/T3, this phase also produces the route inventory. One recon per *template
 
 Spawn one `clone-architect`. It reads all of `01-reference/` and `02-extract/` and produces the three planning files.
 
-## Phase 3 — Checkpoint (mandatory)
+## Phase 3 — Decide and keep going
 
-Read `03-structure/STRUCTURE.md` yourself, then present it to the user in Korean: what the site is, the section list with measured heights, the derived design tokens, and — most importantly — everything under **불확실한 것**.
+**Do not stop here to ask permission.** The user asked for a clone; deciding how to build
+it is the job, not a question to hand back. Read `03-structure/STRUCTURE.md`, make the
+calls yourself from the evidence, write them into `NOTES.md`, tell the user what you
+decided in two or three lines, and continue.
 
-Ask them to confirm scope — and make **the tier** the first question, not an afterthought:
+Defaults, unless the user said otherwise:
 
-- **T1, T2, or T3?** Show the table above. Most users who say "이 사이트 만들어줘" picture
-  T2 or T3 and will accept T1 only once they see it named. Ask; do not assume the default.
-- Which page(s), which viewport widths, how far to take interactions
-- If T3: whether the schema is the deliverable, or a running mock backend is
+- **Tier** — infer it from what they asked for. "이 사이트 만들어줘" with linked nav and a
+  product grid means they picture the inner pages working: go T2, and go T3 when the page
+  is obviously data-driven (listings, filters, search results). A single marketing page
+  with no list behind it is T1. When genuinely torn, take the *larger* scope — an extra
+  route costs a cycle, a missed one costs the user their next request.
+- **Viewports** — every width the site's own breakpoints declare and the browser can
+  actually render. Drop a width only when it cannot be rendered, never to save effort.
+- **Fonts** — hotlink what the site hotlinks; substitute only licensed faces you cannot
+  reach, and name the substitution.
+- **Assets** — download everything reachable; hotlink what 403s; placeholder at exact
+  dimensions only as a last resort.
 
-**Stop and wait for an answer.** This is the one blocking checkpoint in the workflow. Everything after it is expensive to redo, and a wrong assumption here means rebuilding every section — or building one page when they wanted twelve.
+State assumptions in the report, in one line each. A stated assumption the user can
+correct beats a question that stalls the work.
+
+## Completeness gates — enforce these on yourself
+
+Do not advance a phase until its gate passes. These are the failures that look like
+success, so check them with commands, not with confidence.
+
+**After recon**, before the architect sees anything:
+- Screenshot count × viewport height ≥ `scrollHeight`. Missing tail = missing sections.
+- `layout.txt` contains headings, `<img>`, and buttons — not just `<section>` wrappers.
+  A skeleton that lists every section and nothing inside them is the classic plausible
+  failure. Grep for it.
+- Every extract file parses and is non-trivial. `{}` and error strings are failures.
+- Section count in the capture matches what the geometry dump says exists.
+
+**After the architect**: every section in `SECTIONS.md` has real measured numbers, and the
+sum of section heights reconciles with the page's `scrollHeight`. If it does not, the plan
+has a hole — find it now, not after six builders have worked from it.
+
+**After the build**: the assembled page's height and each section's y-offset match the
+original within a few px, measured by script on both pages.
+
+When a gate fails, fix it and re-run the gate. Do not proceed with a note saying it was
+close. Do not ask the user whether to proceed — they cannot see what you just measured.
 
 ## Phase 4 — Assets
 
@@ -153,13 +201,22 @@ Finalize `NOTES.md`. Close every tab that is still open.
 
 ## When it goes sideways
 
-Stop and ask rather than grinding — after 2–3 failed attempts at the same thing, or on any of:
-- Login wall, paywall, bot check, rate limit, region lock → **invoke `access-gate`**, which
-  owns the whole "이걸 하려면 X가 필요합니다, 진행할까요?" flow
-- A page that renders nothing without JS you cannot trigger
-- A section that will not converge after three verify rounds
-- Fonts or images you can neither obtain nor reasonably substitute
-- A route disallowed by `robots.txt` or the ToS — hard stop, not a choice to offer
+Change the approach rather than grinding the same one — and rather than handing the
+problem back. A failed attempt is information about the method, not a reason to stop.
 
-Say what you tried, what is blocking, and what you would need to get past it. Finish
-everything that does *not* depend on the block before you raise it.
+- **A subagent that has produced nothing useful for many minutes**: stop it and take the
+  work yourself. A stalled agent is not progress, and its partial output is not evidence.
+  Doing the capture inline is slower per call but it always terminates.
+- **A script that times out**: the work often completed anyway — re-read the state in a
+  separate short call before assuming failure. Split long loops into several calls.
+- **A section that will not converge after three rounds**: build it from the screenshot
+  by eye, mark it approximate in the report, and move on to the rest.
+- **Fonts or images you cannot obtain**: substitute at exact dimensions, name the
+  substitution, continue.
+
+Genuinely stop only for a wall no effort of yours can pass — credentials, payment, a
+CAPTCHA, a window the tool cannot resize. Those go to `access-gate`, and only after every
+unblocked thing is finished.
+
+A route disallowed by `robots.txt` or the ToS is not a wall to escalate — it is simply out
+of scope. Note it and build the rest.

@@ -82,30 +82,54 @@ If this comes back populated, the site handed you its palette. Reuse the same va
 
 ## 4. Layout skeleton — `02-extract/layout.txt`
 
-The blueprint. `@x,y` is document-absolute, so it survives scrolling. Bump the depth limit for a dense page; drop it to 3 if the output is unmanageable.
+The blueprint, and the file the architect leans on hardest. `@x,y` is document-absolute, so
+it survives scrolling.
+
+**Do not cap the depth at a small number.** Modern sites bury content under four or five
+pass-through wrappers (`#wrap > #container > .content > .conbox > section`), so a depth-4
+walk stops exactly *at* the sections and emits nothing inside them — a file that looks
+plausible, lists every section, and is useless for building. The walk below instead spends
+its budget on **structure**, by not counting a wrapper that is the same size as its only
+child. Depth is generous (14) because the size filter, not the depth, is what keeps the
+output bounded.
+
+Sanity-check the result before trusting it: it should contain headings, buttons and images,
+not just `<section>` lines. If the deepest line is a section wrapper, the walk never reached
+the content — raise `MAX` and re-run.
 
 ```js
 (() => {
+  const MAX = 14, LIMIT = 5000;
   const lines = [];
   const walk = (el, d) => {
-    if (d > 4) return;
+    if (d > MAX || lines.length > LIMIT) return;
     for (const c of el.children) {
-      if (['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(c.tagName)) continue;
+      if (['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'PATH'].includes(c.tagName)) continue;
       const r = c.getBoundingClientRect();
       if (r.width < 24 || r.height < 12) continue;
       const s = getComputedStyle(c);
+      // a wrapper that adds no geometry of its own does not deserve a depth level
+      const passThrough = c.children.length === 1
+        && Math.abs(c.children[0].getBoundingClientRect().height - r.height) < 2
+        && Math.abs(c.children[0].getBoundingClientRect().width - r.width) < 2;
       const cls = typeof c.className === 'string' && c.className.trim()
         ? '.' + c.className.trim().split(/\s+/).slice(0, 3).join('.') : '';
       const flex = /flex|grid/.test(s.display)
         ? ` ${s.flexDirection || s.gridTemplateColumns} gap:${s.gap} just:${s.justifyContent} align:${s.alignItems}` : '';
+      const own = [...c.childNodes].filter(n => n.nodeType === 3 && n.textContent.trim())
+        .map(n => n.textContent.trim()).join(' ').slice(0, 40);
+      const txt = own ? ` "${own}"` : '';
+      const type = /^(H1|H2|H3|H4|P|SPAN|A|BUTTON|LI)$/.test(c.tagName)
+        ? ` ${s.fontSize}/${s.lineHeight} ${s.fontWeight} ${s.color}` : '';
+      const img = c.tagName === 'IMG' ? ` src:${(c.currentSrc || c.src || '').split('/').pop().slice(0, 40)}` : '';
       lines.push(`${'  '.repeat(d)}<${c.tagName.toLowerCase()}${c.id ? '#' + c.id : ''}${cls}> `
         + `${Math.round(r.width)}x${Math.round(r.height)} @${Math.round(r.x)},${Math.round(r.y + scrollY)} `
-        + `${s.display}${flex} pad:${s.padding} mar:${s.margin}`);
-      walk(c, d + 1);
+        + `${s.display}${flex} pad:${s.padding} mar:${s.margin}${type}${img}${txt}`);
+      walk(c, passThrough ? d : d + 1);
     }
   };
   walk(document.body, 0);
-  return lines.join('\n');
+  return `lines:${lines.length}${lines.length > LIMIT ? ' (TRUNCATED — raise LIMIT)' : ''}\n` + lines.join('\n');
 })()
 ```
 
