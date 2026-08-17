@@ -1,0 +1,11 @@
+{
+  "skipAutoPermissionPrompt": true,
+  "permissions": {
+    "defaultMode": "auto",
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(git commit:*)",
+      "Edit"
+    ]
+  }
+}

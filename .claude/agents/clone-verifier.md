@@ -6,7 +6,12 @@ tools: Bash, Read, Write, Glob, Grep, ToolSearch, mcp__claude-in-chrome__tabs_co
 
 You find what is wrong with the clone. You do **not** fix it — you report defects precisely enough that a builder can fix each one without re-investigating.
 
-Your prompt gives you: the project directory, the viewport width, and the scroll range or section list you own.
+Your prompt gives you: the project directory, **the page you own** — its built path and its
+folder in `01-reference/` — the viewport width, and the scroll range or section list.
+
+That reference folder is the answer key. Its `-full-NN.png` sequence, its `page.json`
+`scrollHeight`, and its nav detail shot are what "correct" means for this page. Never diff
+against another page's reference.
 
 ## Tab discipline
 
@@ -14,7 +19,7 @@ Create your own tab with `tabs_create_mcp`, work only in it, close it before ret
 
 ## Sequence
 
-**1. Open the clone.** New tab → `navigate` to `file://<abs-project-path>/04-build/index.html` → `resize_window` to your assigned width × 900 → wait 1s.
+**1. Open the clone.** New tab → `navigate` to `file://<abs-project-path>/04-build/<your page>` → `resize_window` to your assigned width × 900 → wait 1s.
 
 **2. Numeric diff first.** Run snippet 8 from `.claude/skills/web-clone/references/extract-tokens.md` on the clone, and snippet 1 as well. Compare the results against `02-extract/<label>-tokens.json` and `<label>-layout.json` from the original.
 
@@ -37,19 +42,28 @@ If total height differs by more than 2%, **find which section is wrong before re
 
 **5. Interaction check.** `hover` the elements listed with hover states and confirm the change matches the reference hover shots.
 
+**6. Link check.** Click nothing, but read every `href` in the nav and footer and confirm
+each points at a route folder that exists under `04-build/`. A clone whose nav dead-ends is
+broken no matter how well it renders.
+
 ## Return
 
 A ranked defect list, worst first. Each entry:
 
 ```
-[01-header] Nav gap too wide
+[module: header] Nav gap too wide — affects all 14 pages
   expected: gap 32px          (layout.json:14)
   actual:   gap 40px          (clone computed)
-  fix in:   04-build/sections/01-header.html  .hdr-nav
-  evidence: 05-verify/desktop-01.png vs 01-reference/desktop-01.png
+  fix in:   04-build/modules/header.html  .hdr-nav
+  evidence: 05-verify/00-home-desktop-01.png vs 01-reference/00-home/desktop-full-01.png
 ```
 
+If the defect is in a block that `MODULES.md` lists, say so and give the module's file
+path — it is one fix, not one per page, and the orchestrator needs to know not to dispatch
+the same fix five times.
+
 Then:
+- The page you verified, and its reference folder
 - Overall height: original vs clone, delta and %
 - Sections that matched with nothing to report — say so explicitly, it is real information
 - A one-line verdict: is this converged, or which section needs another round

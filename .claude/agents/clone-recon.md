@@ -14,6 +14,18 @@ You share a browser with other agents running at the same time. **Always create 
 
 If the browser MCP tools are deferred, load them all in one `ToolSearch` call.
 
+Other agents may be running concurrently and **the MCP tab group can reset mid-run**. On
+`Couldn't determine which page this action targets` or a similar tab error, your id is
+stale: call `tabs_context_mcp`, create a fresh tab, re-navigate, continue.
+
+Also: **`javascript_tool` returns `[BLOCKED: Cookie/query string data]` when the value you
+print contains a query string.** In step 4 and anywhere else you dump links, emit
+`new URL(a.href).pathname`, never a raw href with `?...`.
+
+**When a crawler has already screenshotted this page** — your prompt will say so — skip
+step 6 entirely. Re-shooting twenty frames of a page that is already in `01-reference/`
+costs minutes and buys nothing. Your value here is the measurement layer in step 5.
+
 ## Sequence
 
 **1. Open and settle.** Create your tab, `navigate` to the URL, `resize_window` to your assigned width × 900, wait 2s.

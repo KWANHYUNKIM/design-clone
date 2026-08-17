@@ -11,29 +11,39 @@ and never let the two blur together.
 
 ## Pick a tier before you start
 
-Confirm the tier at the Phase 3 checkpoint — the cost difference between them is 10x.
+Pick the tier yourself at Phase 3 and write the reason into `NOTES.md`. The cost
+difference is 10x, which is why you *state* your choice — not why you ask about it. When
+torn, take the larger scope.
 
 | Tier | Output | Cost |
 |---|---|---|
 | **T1 — design** | One page, pixel-identical, static. The `SKILL.md` default. | baseline |
 | **T2 — site** | Every in-scope route, real navigation between them, still static. | ~1 recon+build cycle per route |
-| **T3 — app** | T2 plus working interactions, a schema, seed data, and a local mock API. | ~2x T2, plus backend work |
+| **T3 — app** | T2 plus client-side interactions, and a schema documented from observed traffic. | ~2x T2 |
 
-T3 does **not** mean a working product. It means a convincing local reproduction:
-filters that filter, search that searches, detail pages that read from a real table.
-Payments, messaging, notifications, real auth — out of scope unless the user names them.
+T3 does **not** mean a working product, and it does **not** include a backend. There is no
+server, no seed data, no database the clone runs against. What you deliver is a static
+clone whose in-page interactions behave (filters and tabs that toggle, menus that open),
+plus a written account of the data model behind the real site. Payments, messaging,
+notifications, real auth — out of scope unless the user names them, and even then only as
+documentation.
 
 ## Route discovery
 
-Cast the net before choosing:
+Phase 1a already walked the nav depth-first, so `01-reference/MAP.md` and the `page.json`
+`links` arrays are your primary inventory. Widen it only where the crawl could not reach:
 
-1. `<label>-interactive.txt` from recon — every `<a href>` already captured
-2. `/sitemap.xml` and `/robots.txt` — fetch with `curl`, not the browser
-3. The nav and footer specifically — those are the site's own map of itself
-4. Framework route manifests when the site is a SPA: Next.js `__NEXT_DATA__`,
+1. `/sitemap.xml` and `/robots.txt` — fetch with `curl`, not the browser. This is the one
+   source that shows pages the nav never links to.
+2. Framework route manifests when the site is a SPA: Next.js `__NEXT_DATA__`,
    Remix `window.__remixManifest`, Nuxt `__NUXT__`. Read them via `javascript_tool`.
+3. `<label>-interactive.txt` from recon, for anything a `page.json` missed.
 
-Then **collapse URLs into templates**. A marketplace with 40,000 listings has maybe six
+If any of these turns up a route family with no folder in `01-reference/`, **send a crawler
+back for it** before planning. Screenshots first is not a Phase 1a rule, it is the rule.
+
+Then **collapse URLs into templates** — the crawler's `signature` field has already done
+most of this; reconcile its groupings with what the URL patterns suggest. A marketplace with 40,000 listings has maybe six
 templates. `/kr/buy-sell/s/`, `/kr/cars/s/`, `/kr/jobs/s/` are one *list* template with a
 category param; `/kr/community/<slug>-<id>/` is one *detail* template.
 
@@ -135,16 +145,18 @@ Say "not derivable from the outside" and move on:
 - Internal IDs' meaning. `company=1` is a key; that it means "현대" is a guess unless the
   UI said so
 
-## Seed data and the mock API
+## No backend
 
-Seed from what recon already captured — the real copy on the real cards. That keeps the
-clone honest and the layout truthful. Anything that looks like a real person gets
-replaced with synthetic values first.
+The schema is a deliverable to **read**, not to run. Do not write a server, seed data, an
+ORM config, or client code that fetches from an API. The clone stays static and
+`04-build/index.html` stays self-contained.
 
-Keep the backend local and trivial: a single-file server reading SQLite or JSON, or
-`json-server`. The deliverable is still one folder that runs offline. And when there is a
-backend, `04-build/index.html` stops being self-contained — say so explicitly in the
-handoff, because the base skill promises the opposite.
+Content on the page comes from what recon captured — the real copy on the real cards,
+hardcoded into the markup. Anything that looks like a real person's data gets replaced
+with synthetic values first.
+
+If the user wants the schema actually stood up, that is a separate request: say what
+`SCHEMA.md` gives them to start from, and let them ask.
 
 ## Extra workspace
 
@@ -154,7 +166,7 @@ projects/<slug>/
   03-structure/FLOWS.md     interactions: trigger → request → response → UI
   03-structure/SCHEMA.md    entities, fields, relations — observed vs inferred
   04-build/<route>/         one folder per cloned route
-  04-build/db/              schema.sql, seed.sql, the mock server
+  04-build/db/              schema.sql — the DDL only, nothing that runs
   06-model/                 raw network captures backing the inference
 ```
 
