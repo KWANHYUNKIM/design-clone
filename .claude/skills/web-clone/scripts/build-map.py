@@ -21,6 +21,11 @@ from glob import glob
 from pathlib import Path
 from urllib.parse import urlsplit
 
+# Viewport height and scrollY are read as integers but are fractional under a non-integer
+# devicePixelRatio or zoom, so an exactly-complete capture can score 1px short per rounded
+# measurement. Tolerate a few px; a genuinely missing tail is hundreds of px, never four.
+ROUNDING_SLACK = 4
+
 TRUNCATION_HINTS = (
     "infinite", "not paged", "NOT paged", "capped", "deliberate",
     "per instructions", "do not page", "stopped paging",
@@ -38,6 +43,69 @@ def normalize_sig(sig):
     sig = re.sub(r"\([^)]*\)", "", sig or "")
     sig = re.sub(r"\d+", "", sig)
     return re.sub(r"\s+", "", sig).strip(">").lower()
+
+
+def viewport_height(data):
+    """The viewport height this page was captured at, however the crawler spelled it.
+
+    The coverage gate is shots x viewportHeight >= scrollHeight, so this number decides
+    every SHORT/OK verdict. Crawlers have written it four different ways in practice —
+    top-level `viewportHeight` or `innerHeight`, and nested `viewport.height` or
+    `viewport.innerHeight` — and a spelling this function does not know silently falls
+    back to a default, marking well-covered pages SHORT across the whole run. Read every
+    spelling before giving up, and make the fallback loud rather than plausible.
+    """
+    for key in ("viewportHeight", "innerHeight", "viewport_height"):
+        if isinstance(data.get(key), (int, float)) and data[key] > 0:
+            return data[key]
+    vp = data.get("viewport")
+    if isinstance(vp, dict):
+        for key in ("height", "innerHeight", "h"):
+            if isinstance(vp.get(key), (int, float)) and vp[key] > 0:
+                return vp[key]
+    return None
+
+
+def target_height(data):
+    """The page height the capture actually had to cover.
+
+    `scrollHeight` is usually sampled on arrival, but these pages are not static: lazy
+    sections settle, skeletons collapse, and a page can be materially SHORTER by the time
+    the last shot is taken (one lookbook went 6536 -> 5710). Gating a complete capture
+    against a stale first-paint height reports a missing tail that never existed.
+
+    When the crawler recorded the height at the bottom, that is the honest target — it is
+    the height that was true when the sweep finished. Infinite feeds grow instead of
+    shrinking, but those are caught by the truncation hints, not by this number.
+    """
+    for key in ("scrollHeight_at_bottom", "scrollHeightAtBottom", "settledScrollHeight",
+                "scrollHeight_settled"):
+        if isinstance(data.get(key), (int, float)) and data[key] > 0:
+            return data[key]
+    return data.get("scrollHeight", 0)
+
+
+def coverage(data, n_shots, vh):
+    """How far down the page the shots actually reach, in px.
+
+    `n_shots * vh` assumes the shots tile the page without overlap, which is wrong at the
+    bottom: the browser clamps scrollTo to `scrollHeight - vh`, so the last shot always
+    overlaps its predecessor on a page that is not an exact multiple of the viewport. That
+    made short pages fail the gate by the size of the remainder (a 1559px page captured in
+    full at scrollY 0 and 786 scored 1546/1559) — a defect that is pure arithmetic, and
+    indistinguishable in the report from a genuinely missing tail.
+
+    When the crawler recorded where each shot was taken, measure from that instead; it is
+    exact and handles clamping, overlap, and gap-fill shots for free.
+    """
+    positions = data.get("shotScrollY") or data.get("shot_scroll_map")
+    if isinstance(positions, dict):
+        positions = list(positions.values())
+    if isinstance(positions, list):
+        ys = [y for y in positions if isinstance(y, (int, float))]
+        if ys:
+            return max(ys) + vh
+    return n_shots * vh
 
 
 def depth_of(folder):
@@ -67,17 +135,21 @@ def main():
             orphans.append((folder.name, f"page.json unparseable: {exc}"))
             continue
 
-        vh = data.get("viewportHeight") or data.get("innerHeight") or 723
-        sh = data.get("scrollHeight", 0)
-        covered = len(shots) * vh
+        vh = viewport_height(data)
+        sh = target_height(data)
         notes = str(data.get("notes", ""))
         status = data.get("status", "?")
-        if covered >= sh:
+        if vh is None:
+            # Never guess a height here. A wrong one turns the gate into noise in whichever
+            # direction the guess leans, and the failure looks exactly like a real gap.
+            covered = 0
+            gate = "NO-VIEWPORT"
+        elif (covered := coverage(data, len(shots), vh)) >= sh - ROUNDING_SLACK:
             gate = "OK"
         elif status == "template-duplicate":
             # Short by design: a duplicate only has to prove which template it is.
             gate = "CAPPED dup"
-        elif any(h in notes for h in TRUNCATION_HINTS):
+        elif any(h.lower() in notes.lower() for h in TRUNCATION_HINTS):
             gate = "CAPPED"
         else:
             gate = f"SHORT {covered}/{sh}"
@@ -129,7 +201,7 @@ def main():
     print(f"wrote {ref / 'MAP.md'}: {len(rows)} pages, {len(sigs)} templates, "
           f"{len(orphans)} incomplete")
     for r in rows:
-        if r["gate"].startswith("SHORT"):
+        if r["gate"].startswith(("SHORT", "NO-VIEWPORT")):
             print(f"  GATE FAIL {r['folder']}: {r['gate']}")
 
 
